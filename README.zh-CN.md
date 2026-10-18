@@ -104,6 +104,17 @@ HiDPI 配置按**厂商和型号**安装，会影响同型号显示器。自动�
 
 图标由 `Assets/GenerateIcon.swift` 中的矢量路径绘制，包含从 16 像素到 1024 像素的尺寸。
 
+## 自动发布
+
+更新 `Resources/Info.plist` 中的 `CFBundleShortVersionString` 和 `CFBundleVersion`，提交后推送与应用版本一致的标签，例如：
+
+```sh
+git tag v1.0.2
+git push origin v1.0.2
+```
+
+标签必须为 `v` 加应用版本号。GitHub Actions 会在 Apple 芯片和 Intel 运行器上完成测试与构建，两种架构均成功后生成 `SHA256SUMS.txt`，并将两个 ZIP 安装包和校验文件上传到对应 Release。Release 不存在时自动创建；重跑工作流会替换这三个附件，保留已有发布说明。发布使用内置 `GITHUB_TOKEN`，无需额外配置密钥。
+
 ## 命令行
 
 应用内置 `ConfigTool`，读取明确的 JSON 配置：

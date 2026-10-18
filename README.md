@@ -103,6 +103,17 @@ BUILD_ARCH=x86_64 ./Scripts/package.sh
 
 Regenerate the icon with `./Scripts/generate-icon.sh`. Vector paths in `Assets/GenerateIcon.swift` produce sizes from 16 to 1024 pixels.
 
+## Automated releases
+
+After updating `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`, commit the changes and push a matching version tag, for example:
+
+```sh
+git tag v1.0.2
+git push origin v1.0.2
+```
+
+The tag must equal `v` followed by the app version. GitHub Actions tests and builds on Apple silicon and Intel runners, then generates `SHA256SUMS.txt` and uploads both ZIP archives and the checksum file to the matching Release. A new Release is created if needed. Rerunning the workflow replaces those three attachments while preserving an existing Release’s description. Publishing uses the built-in `GITHUB_TOKEN`; no additional secret is required.
+
 ## Command line
 
 The bundled `ConfigTool` reads an explicit JSON profile:
