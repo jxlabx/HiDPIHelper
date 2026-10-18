@@ -27,7 +27,8 @@ enum DisplayController {
           == id
       }
       return ConnectedDisplay(
-        id: id, name: screen?.localizedName ?? "外接显示器 \(id)", vendorID: CGDisplayVendorNumber(id),
+        id: id, name: screen?.localizedName ?? localized("外接显示器 \(id)", "External Display \(id)"),
+        vendorID: CGDisplayVendorNumber(id),
         productID: CGDisplayModelNumber(id), serialNumber: CGDisplaySerialNumber(id))
     }
   }

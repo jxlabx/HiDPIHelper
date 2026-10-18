@@ -29,7 +29,10 @@ struct DisplayProfile: Codable, Equatable {
   func validate() throws {
     guard vendorID > 0, productID > 0, (320...8192).contains(width), (200...8192).contains(height)
     else {
-      throw configurationError("显示器标识无效，或目标宽高超出允许范围（宽 320–8192，高 200–8192）。")
+      throw configurationError(
+        localized(
+          "显示器标识无效，或目标宽高超出允许范围（宽 320–8192，高 200–8192）。",
+          "Invalid display identifiers or target dimensions (width: 320–8192; height: 200–8192)."))
     }
   }
 
@@ -42,4 +45,10 @@ struct DisplayProfile: Codable, Equatable {
 
 func configurationError(_ message: String) -> NSError {
   NSError(domain: "HiDPIHelper", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+}
+
+// 跟随系统首选语言；其他语言使用英文。
+func localized(_ chinese: @autoclosure () -> String, _ english: @autoclosure () -> String) -> String
+{
+  Locale.preferredLanguages.first?.hasPrefix("zh") == true ? chinese() : english()
 }
