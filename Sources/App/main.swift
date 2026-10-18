@@ -158,7 +158,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       stack.bottomAnchor.constraint(
         lessThanOrEqualTo: window.contentView!.bottomAnchor, constant: -24),
     ])
+    let github = NSButton(
+      title: "GitHub · jxlabx/HiDPIHelper", target: self, action: #selector(openGitHub))
+    github.isBordered = false
+    github.contentTintColor = .linkColor
+    github.font = .systemFont(ofSize: 12)
+    github.translatesAutoresizingMaskIntoConstraints = false
+    window.contentView!.addSubview(github)
+    NSLayoutConstraint.activate([
+      github.centerXAnchor.constraint(equalTo: window.contentView!.centerXAnchor),
+      github.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
+      stack.bottomAnchor.constraint(lessThanOrEqualTo: github.topAnchor, constant: -16),
+    ])
     window.center()
+  }
+
+  @objc private func openGitHub() {
+    NSWorkspace.shared.open(URL(string: "https://github.com/jxlabx/HiDPIHelper")!)
   }
 
   private func button(_ title: String, _ action: Selector) -> NSButton {
