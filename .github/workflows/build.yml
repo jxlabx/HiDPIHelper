@@ -1,6 +1,8 @@
-name: 构建与测试
+name: 构建、测试与发布
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -13,6 +15,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: 校验发布标签与应用版本
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+          [[ "$RELEASE_TAG" == "v$VERSION" ]] || { echo "版本标签与应用版本不一致：$RELEASE_TAG / $VERSION"; exit 1; }
       - name: 配置测试
         run: ./Scripts/test.sh
       - name: 构建与打包
@@ -25,3 +34,43 @@ jobs:
         with:
           name: HiDPIHelper-${{ matrix.runner }}
           path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: 发布安装包
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref_name }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: 下载两种架构安装包
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: HiDPIHelper-*
+          merge-multiple: true
+          path: dist
+      - name: 生成 SHA-256 校验文件
+        working-directory: dist
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          sha256sum "HiDPIHelper-$VERSION-arm64.zip" "HiDPIHelper-$VERSION-x86_64.zip" > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+      - name: 创建或更新对应 Release
+        working-directory: dist
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          ASSETS=("HiDPIHelper-$VERSION-arm64.zip" "HiDPIHelper-$VERSION-x86_64.zip" SHA256SUMS.txt)
+          RELEASE_TAGS=$(gh api --paginate "repos/$GH_REPO/releases" --jq '.[].tag_name')
+          if printf '%s\n' "$RELEASE_TAGS" | grep -Fxq -- "$RELEASE_TAG"; then
+            gh release upload "$RELEASE_TAG" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${ASSETS[@]}" --verify-tag --title "HiDPI Helper $VERSION" --generate-notes
+          fi
