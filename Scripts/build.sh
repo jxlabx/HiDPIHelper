@@ -13,6 +13,7 @@ cat "$PROJECT_ROOT/Sources/Core/DisplayProfile.swift" "$PROJECT_ROOT/Sources/Cor
 xcrun swiftc -O -target "${BUILD_ARCH}-apple-macosx13.0" -module-cache-path "$BUILD_DIR/cache" "$BUILD_DIR/app/main.swift" -o "$APP_DIR/Contents/MacOS/HiDPIHelper"
 xcrun swiftc -O -target "${BUILD_ARCH}-apple-macosx13.0" -module-cache-path "$BUILD_DIR/cache" "$BUILD_DIR/config/main.swift" -o "$APP_DIR/Contents/MacOS/ConfigTool"
 cp "$PROJECT_ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$PROJECT_ROOT/LICENSE" "$APP_DIR/Contents/Resources/LICENSE"
 cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP_DIR/Contents/MacOS/ConfigTool"
 codesign --force --sign - "$APP_DIR"
