@@ -7,14 +7,21 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        runner: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: 配置测试
         run: ./Scripts/test.sh
       - name: 构建与打包
         run: ./Scripts/package.sh
+      - name: 验证应用与配置生成器
+        run: |
+          "dist/HiDPI Helper.app/Contents/MacOS/HiDPIHelper" --diagnose
+          "dist/HiDPI Helper.app/Contents/MacOS/ConfigTool" generate Tests/Fixtures/dell-u2518d.json .build/generated.plist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: HiDPIHelper-macos
+          name: HiDPIHelper-${{ matrix.runner }}
           path: dist/*.zip

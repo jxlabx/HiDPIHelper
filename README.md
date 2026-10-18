@@ -89,6 +89,8 @@ HiDPI 配置按**厂商和型号**安装，会影响同型号显示器。自动�
 ./Scripts/build.sh
 ```
 
+默认构建当前架构；指定架构可运行 `BUILD_ARCH=arm64 ./Scripts/package.sh` 或 `BUILD_ARCH=x86_64 ./Scripts/package.sh`。
+
 产物位于 `dist/HiDPI Helper.app`。构建不安装系统配置，不修改当前显示模式，也不注册登录项。
 
 重新生成图标：
