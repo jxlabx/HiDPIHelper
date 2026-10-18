@@ -69,7 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let stack = NSStackView()
     stack.orientation = .vertical
     stack.alignment = .leading
-    stack.spacing = 18
+    stack.spacing = 12
     stack.translatesAutoresizingMaskIntoConstraints = false
     let title = NSTextField(labelWithString: "让文字大小刚刚好")
     title.font = .systemFont(ofSize: 24, weight: .semibold)
