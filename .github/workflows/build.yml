@@ -1,0 +1,20 @@
+name: 构建与测试
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: 配置测试
+        run: ./Scripts/test.sh
+      - name: 构建与打包
+        run: ./Scripts/package.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: HiDPIHelper-macos
+          path: dist/*.zip
