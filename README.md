@@ -6,11 +6,16 @@
 
 A lightweight macOS menu bar app for switching HiDPI modes, creating display overrides, and restoring a saved mode after login, wake, or reconnection. Built with Swift and system frameworks, with no third-party runtime dependencies.
 
+<p align="center">
+  <img src="Assets/Screenshot-en.png" width="400" alt="Main window with a single HiDPI switch">
+  <img src="Assets/Screenshot-advanced-en.png" width="400" alt="Advanced options expanded">
+</p>
+
 ## Features
 
 - Select an external display and set your preferred desktop dimensions.
 - Switch to HiDPI or to a native mode explicitly identified by macOS.
-- Automatically restore the previous mode unless you confirm within 15 seconds.
+- Turn HiDPI on with one switch, with everything else under Advanced; the previous mode is restored unless you keep the change within 15 seconds.
 - Launch at login and restore the last saved display mode.
 - Generate, install, check, and restore display overrides independently of other display tools.
 - Preserve existing settings, back up before installation, and verify installed bytes.
@@ -37,11 +42,12 @@ Allowed target dimensions are 320–8192 pixels wide and 200–8192 pixels high.
 ## Install and use
 
 1. Download the archive for your architecture from [Releases](https://github.com/jxlabx/HiDPIHelper/releases), or build from source below.
-2. Move `HiDPI Helper.app` to Applications, open it, and select an external display.
-3. Enter the desired desktop dimensions and click **Save Target Size**. Changing the target disables automatic restoration; enable it again after confirming the new mode.
-4. Click **Use HiDPI**. If the mode is unavailable, click **Create / Repair…** and complete administrator authentication in Terminal.
-5. After installation, save your work and restart. Reopen the app, check the configuration, switch to the target mode, and click **Keep Changes** within 15 seconds.
-6. Enable **Launch at Login** and automatic restoration as needed.
+2. Move `HiDPI Helper.app` to Applications and open it. The main window has a single **HiDPI** switch.
+3. Turn the switch on to use the target HiDPI mode. If everything looks right, click **Keep** within 15 seconds, or the previous mode is restored. A kept HiDPI mode is restored at login, on wake, and on reconnect; turning the switch off returns to the native mode and stops automatic restoration.
+4. If macOS does not offer the target mode yet, click **Create HiDPI Configuration…** in the main card, complete administrator authentication in Terminal, save your work, restart, and turn the switch on.
+5. Everything else lives under **Advanced**: target desktop size (changing it disables automatic restoration until you keep the switch state again), display refresh, automatic restoration, Launch at Login, and configuration check, repair, and restore.
+
+macOS 26 and later use a Liquid Glass interface; earlier versions fall back to a translucent material.
 
 Release builds are ad-hoc signed and **not notarized by Apple**. Follow your environment’s software policies, or build locally from source.
 
