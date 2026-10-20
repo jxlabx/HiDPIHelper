@@ -49,7 +49,7 @@ struct DisplayConfiguration {
       let dict = try checked(data)
       return (dict["scale-resolutions"] as? [Data] ?? []).contains(entry)
         ? localized(
-          "独立配置已安装，包含目标 HiDPI 模式。", "The override is installed and contains the target HiDPI mode.")
+          "目标缩放条目已写入文件；是否生效须检查系统模式。", "The target scaling entry is on disk; check system modes to verify activation.")
         : localized(
           "已找到显示配置，但缺少目标 HiDPI 条目。",
           "A display configuration was found, but the target HiDPI entry is missing.")

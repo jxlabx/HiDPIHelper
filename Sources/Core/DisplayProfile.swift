@@ -19,7 +19,8 @@ struct DisplayProfile: Codable, Equatable {
   }
   var entry: Data {
     var data = Data()
-    for value in [UInt32(width * 2), UInt32(height * 2), 9, 0x0020_0000] {
+    // 使用系统预设中常见的 12 字节缩放条目，独立请求目标模式。
+    for value in [UInt32(width * 2), UInt32(height * 2), 1] {
       var big = value.bigEndian
       withUnsafeBytes(of: &big) { data.append(contentsOf: $0) }
     }

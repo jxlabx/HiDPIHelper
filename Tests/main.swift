@@ -9,6 +9,9 @@ func rejects(_ message: String, _ body: () throws -> Void) {
     fatalError(message)
   } catch { print("通过：\(message)") }
 }
+expect(DisplayProfile.dellPreset.entry == Data([
+  0, 0, 0x10, 0, 0, 0, 9, 0, 0, 0, 0, 1,
+]), "2048×1152 应请求 4096×2304 的独立缩放模式，使用 12 字节独立缩放条目")
 let fileManager = FileManager.default
 let base = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
 try fileManager.createDirectory(at: base, withIntermediateDirectories: true)
@@ -55,6 +58,23 @@ for profile in profiles {
   print("通过：\(profile.modelKey) · \(profile.width)×\(profile.height)")
 }
 let configuration = DisplayConfiguration(profile: .dellPreset)
+let legacyRoot = base.appendingPathComponent("legacy-entry")
+_ = try configuration.install(root: legacyRoot)
+let legacyEntry = Data([0, 0, 0x10, 0, 0, 0, 9, 0, 0, 0, 0, 9, 0, 0x20, 0, 0])
+let legacyData = try PropertyListSerialization.data(fromPropertyList: [
+  "DisplayVendorID": 4268, "DisplayProductID": 16700, "scale-resolutions": [legacyEntry],
+], format: .xml, options: 0)
+try legacyData.write(to: configuration.target(legacyRoot))
+_ = try configuration.install(root: legacyRoot)
+let repaired = try Data(contentsOf: configuration.target(legacyRoot))
+let repairedEntries = try configuration.checked(repaired)["scale-resolutions"] as? [Data]
+expect(repairedEntries == [legacyEntry, DisplayProfile.dellPreset.entry], "旧条目存在时仍须追加独立缩放条目")
+_ = try configuration.install(root: legacyRoot)
+let repeatedRepair = try Data(contentsOf: configuration.target(legacyRoot))
+expect(repeatedRepair == repaired, "修复后重复安装不改文件")
+_ = try configuration.restore(root: legacyRoot)
+let restoredLegacy = try Data(contentsOf: configuration.target(legacyRoot))
+expect(restoredLegacy == legacyData, "修复回滚应恢复旧配置原字节")
 rejects("拒绝错误厂商标识") { _ = try configuration.checked(Data("<plist><dict/></plist>".utf8)) }
 rejects("拒绝溢出尺寸") {
   try DisplayProfile(vendorID: 1, productID: 2, serialNumber: 0, width: Int.max, height: 1080)
