@@ -3,9 +3,20 @@ import CoreGraphics
 import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+  private let contentWidth: CGFloat = 412
+  private let cardPadding: CGFloat = 18
   private var window: NSWindow!
+  private var root: NSStackView!
   private var statusItem: NSStatusItem!
   private var displayPicker: NSPopUpButton!
+  private var displayNameLabel: NSTextField!
+  private var modeLabel: NSTextField!
+  private var hiDPISwitch: NSSwitch!
+  private var setupButton: NSButton!
+  private var confirmCard: NSView!
+  private var confirmLabel: NSTextField!
+  private var advancedButton: NSButton!
+  private var advancedCard: NSView!
   private var widthField: NSTextField!
   private var heightField: NSTextField!
   private var statusLabel: NSTextField!
@@ -18,11 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private var previous: (CGDirectDisplayID, CGDisplayMode)?
   private var pendingHiDPI = true
   private var confirmationTimer: Timer?
+  private var confirmationDeadline = Date()
   private var debounce: DispatchWorkItem?
   private let preferences = UserDefaults.standard
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    preferences.register(defaults: ["automatic": false, "useHiDPI": true])
+    preferences.register(defaults: ["automatic": false, "useHiDPI": true, "showAdvanced": false])
     if let data = preferences.data(forKey: "profile"),
       let saved = try? JSONDecoder().decode(DisplayProfile.self, from: data),
       (try? saved.validate()) != nil
@@ -54,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     buildWindow()
     reloadDisplays()
     refresh()
+    fitWindow(animated: false)
+    window.center()
     show()
     CGDisplayRegisterReconfigurationCallback(
       { _, flags, context in
@@ -66,129 +80,358 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     scheduleStartupRecovery()
   }
 
+  // MARK: - 界面
+
   private func buildWindow() {
     window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 680, height: 650),
-      styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+      contentRect: NSRect(x: 0, y: 0, width: contentWidth + 48, height: 360),
+      styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered,
+      defer: false)
     window.title = "HiDPI Helper"
+    window.titleVisibility = .hidden
+    window.titlebarAppearsTransparent = true
+    window.isMovableByWindowBackground = true
     window.isReleasedWhenClosed = false
-    let stack = NSStackView()
-    stack.orientation = .vertical
-    stack.alignment = .leading
-    stack.spacing = 12
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    let title = NSTextField(labelWithString: localized("让文字大小刚刚好", "Text at just the right size"))
-    title.font = .systemFont(ofSize: 24, weight: .semibold)
-    stack.addArrangedSubview(title)
+    let background = NSView()
+    installWindowBackground(background)
+
+    root = NSStackView()
+    root.orientation = .vertical
+    root.alignment = .leading
+    root.spacing = 14
+    root.translatesAutoresizingMaskIntoConstraints = false
+    root.addArrangedSubview(header())
+    addFullWidth(heroCard())
+    confirmCard = confirmationCard()
+    addFullWidth(confirmCard)
+    advancedButton = NSButton(
+      title: localized("高级", "Advanced"), target: self, action: #selector(toggleAdvanced))
+    advancedButton.isBordered = false
+    advancedButton.imagePosition = .imageTrailing
+    advancedButton.font = .systemFont(ofSize: 13, weight: .medium)
+    advancedButton.contentTintColor = .secondaryLabelColor
+    root.addArrangedSubview(advancedButton)
+    root.setCustomSpacing(8, after: advancedButton)
+    advancedCard = advancedSettingsCard()
+    addFullWidth(advancedCard)
+    let github = NSButton(
+      title: "GitHub · jxlabx/HiDPIHelper", target: self, action: #selector(openGitHub))
+    github.isBordered = false
+    github.contentTintColor = .tertiaryLabelColor
+    github.font = .systemFont(ofSize: 11)
+    root.addArrangedSubview(github)
+    root.setCustomSpacing(18, after: advancedCard)
+    github.centerXAnchor.constraint(equalTo: root.centerXAnchor).isActive = true
+
+    background.addSubview(root)
+    NSLayoutConstraint.activate([
+      root.widthAnchor.constraint(equalToConstant: contentWidth),
+      root.centerXAnchor.constraint(equalTo: background.centerXAnchor),
+      root.topAnchor.constraint(equalTo: background.topAnchor, constant: 40),
+    ])
+    advancedCard.isHidden = !preferences.bool(forKey: "showAdvanced")
+    updateAdvancedButton()
+    window.initialFirstResponder = hiDPISwitch
+  }
+
+  // macOS 26 起整个窗口是一块 Liquid Glass，折射后方的桌面与窗口；更早系统使用半透明材质。
+  private func installWindowBackground(_ background: NSView) {
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    #if compiler(>=6.2)
+      if #available(macOS 26.0, *) {
+        let glass = NSGlassEffectView()
+        glass.cornerRadius = 16
+        glass.contentView = background
+        window.contentView = glass
+        background.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+          background.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
+          background.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
+          background.topAnchor.constraint(equalTo: glass.topAnchor),
+          background.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
+        ])
+        return
+      }
+    #endif
+    let material = NSVisualEffectView()
+    material.material = .underWindowBackground
+    material.blendingMode = .behindWindow
+    material.state = .active
+    window.contentView = material
+    pin(background, in: material)
+  }
+
+  private func header() -> NSView {
+    let icon = NSImageView(image: NSApp.applicationIconImage)
+    icon.widthAnchor.constraint(equalToConstant: 44).isActive = true
+    icon.heightAnchor.constraint(equalToConstant: 44).isActive = true
+    let title = NSTextField(labelWithString: "HiDPI Helper")
+    title.font = .systemFont(ofSize: 20, weight: .semibold)
     let subtitle = NSTextField(
-      labelWithString: localized(
-        "为外接显示器设置和恢复 HiDPI 缩放", "Set and restore HiDPI scaling for external displays"))
+      labelWithString: localized("让外接显示器的文字大小刚刚好", "Text at just the right size"))
     subtitle.textColor = .secondaryLabelColor
-    stack.addArrangedSubview(subtitle)
+    let text = NSStackView(views: [title, subtitle])
+    text.orientation = .vertical
+    text.alignment = .leading
+    text.spacing = 2
+    return row([icon, text], spacing: 12)
+  }
+
+  private func heroCard() -> NSView {
+    let symbol = NSImageView(
+      image: NSImage(systemSymbolName: "display", accessibilityDescription: nil) ?? NSImage())
+    symbol.symbolConfiguration = .init(pointSize: 24, weight: .regular)
+    symbol.contentTintColor = .secondaryLabelColor
+    symbol.widthAnchor.constraint(equalToConstant: 32).isActive = true
+    displayNameLabel = NSTextField(labelWithString: "")
+    displayNameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+    displayNameLabel.lineBreakMode = .byTruncatingTail
     displayPicker = NSPopUpButton()
     displayPicker.target = self
     displayPicker.action = #selector(selectDisplay)
-    let reload = button(localized("刷新显示器", "Refresh Displays"), #selector(reload))
-    stack.addArrangedSubview(row([displayPicker, reload]))
+    displayPicker.isHidden = true
+    modeLabel = NSTextField(labelWithString: "")
+    modeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+    modeLabel.textColor = .secondaryLabelColor
+    let info = NSStackView(views: [displayNameLabel, displayPicker, modeLabel])
+    info.orientation = .vertical
+    info.alignment = .leading
+    info.spacing = 3
+    let top = row([symbol, info], spacing: 12)
+
+    // 设置项式布局：标题与说明左对齐，开关贴齐卡片右侧内边距。
+    let title = NSTextField(labelWithString: localized("开启 HiDPI", "Use HiDPI"))
+    title.font = .systemFont(ofSize: 13, weight: .semibold)
+    statusLabel = wrappingLabel(size: 12)
+    statusLabel.preferredMaxLayoutWidth = contentWidth - cardPadding * 2 - 64
+    let text = NSStackView(views: [title, statusLabel])
+    text.orientation = .vertical
+    text.alignment = .leading
+    text.spacing = 3
+    text.translatesAutoresizingMaskIntoConstraints = false
+    hiDPISwitch = NSSwitch()
+    hiDPISwitch.target = self
+    hiDPISwitch.action = #selector(toggleHiDPI)
+    hiDPISwitch.setAccessibilityLabel(localized("开启 HiDPI", "Use HiDPI"))
+    hiDPISwitch.translatesAutoresizingMaskIntoConstraints = false
+    let toggle = NSView()
+    toggle.addSubview(text)
+    toggle.addSubview(hiDPISwitch)
+    NSLayoutConstraint.activate([
+      text.leadingAnchor.constraint(equalTo: toggle.leadingAnchor),
+      text.topAnchor.constraint(equalTo: toggle.topAnchor),
+      text.bottomAnchor.constraint(equalTo: toggle.bottomAnchor),
+      text.trailingAnchor.constraint(lessThanOrEqualTo: hiDPISwitch.leadingAnchor, constant: -16),
+      hiDPISwitch.trailingAnchor.constraint(equalTo: toggle.trailingAnchor),
+      hiDPISwitch.centerYAnchor.constraint(equalTo: text.centerYAnchor),
+    ])
+
+    setupButton = button(
+      localized("创建 HiDPI 配置…", "Create HiDPI Configuration…"), #selector(installConfiguration),
+      prominent: true)
+    let stack = NSStackView(views: [top, divider(), toggle, setupButton])
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 14
+    top.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    toggle.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+    return sectionCard(stack, radius: 24)
+  }
+
+  private func confirmationCard() -> NSView {
+    let icon = NSImageView(
+      image: NSImage(systemSymbolName: "timer", accessibilityDescription: nil) ?? NSImage())
+    icon.contentTintColor = .systemOrange
+    confirmLabel = NSTextField(labelWithString: "")
+    confirmLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+    confirmLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    let spacer = NSView()
+    spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    let revert = button(localized("还原", "Revert"), #selector(revertChange))
+    let keep = button(localized("保留", "Keep"), #selector(confirm), prominent: true)
+    keep.keyEquivalent = "\r"
+    let content = row([icon, confirmLabel, spacer, revert, keep], spacing: 8)
+    let card = sectionCard(content, radius: 20, padding: 12, tint: .systemOrange.withAlphaComponent(0.12))
+    card.isHidden = true
+    return card
+  }
+
+  private func advancedSettingsCard() -> NSView {
+    let stack = NSStackView()
+    stack.orientation = .vertical
+    stack.alignment = .leading
+    stack.spacing = 10
+
+    stack.addArrangedSubview(sectionTitle(localized("目标桌面尺寸", "Target Desktop Size")))
     widthField = NSTextField(string: "2048")
     heightField = NSTextField(string: "1152")
-    widthField.widthAnchor.constraint(equalToConstant: 80).isActive = true
-    heightField.widthAnchor.constraint(equalToConstant: 80).isActive = true
-    let save = button(localized("保存目标尺寸", "Save Target Size"), #selector(saveTarget))
+    for field in [widthField!, heightField!] {
+      field.alignment = .center
+      field.bezelStyle = .roundedBezel
+      field.widthAnchor.constraint(equalToConstant: 72).isActive = true
+    }
+    let save = button(localized("保存", "Save"), #selector(saveTarget))
+    let reload = button(localized("刷新显示器", "Refresh Displays"), #selector(reload))
     stack.addArrangedSubview(
-      row([
-        NSTextField(labelWithString: localized("桌面尺寸", "Desktop Size")), widthField,
-        NSTextField(labelWithString: "×"),
-        heightField, save,
-      ]))
-    editControls = [displayPicker, widthField, heightField, save]
-    statusLabel = NSTextField(wrappingLabelWithString: "")
-    statusLabel.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
-    stack.addArrangedSubview(statusLabel)
-    let apply = button(localized("切换到 HiDPI", "Use HiDPI"), #selector(applyHiDPI))
-    apply.bezelColor = .controlAccentColor
-    stack.addArrangedSubview(
-      row([
-        apply, button(localized("切换到原生模式", "Use Native Mode"), #selector(applyNative)),
-        button(localized("保留设置", "Keep Changes"), #selector(confirm)),
-      ]))
-    let confirmHint = NSTextField(
-      labelWithString: localized(
-        "切换后请在 15 秒内保留，否则自动恢复。",
-        "Keep changes within 15 seconds, or the previous mode will be restored."))
-    confirmHint.font = .systemFont(ofSize: 12)
-    confirmHint.textColor = .secondaryLabelColor
-    stack.addArrangedSubview(confirmHint)
+      row([widthField, NSTextField(labelWithString: "×"), heightField, save, reload], spacing: 8))
+    editControls = [displayPicker, widthField, heightField, save, reload]
+
+    stack.addArrangedSubview(divider())
+    stack.addArrangedSubview(sectionTitle(localized("启动与恢复", "Startup & Restoration")))
     automaticButton = NSButton(
       checkboxWithTitle: localized(
-        "登录、唤醒及重新连接后恢复已保留的模式", "Restore the saved mode at login, on wake, and on reconnect"),
+        "登录、唤醒及重新连接后恢复已保留的模式", "Restore at login, wake, and reconnect"),
       target: self, action: #selector(toggleAutomatic))
     loginButton = NSButton(
       checkboxWithTitle: localized("登录时启动", "Launch at Login"), target: self,
       action: #selector(toggleLogin))
     stack.addArrangedSubview(automaticButton)
     stack.addArrangedSubview(loginButton)
-    let divider = NSBox()
-    divider.boxType = .separator
-    divider.widthAnchor.constraint(equalToConstant: 616).isActive = true
-    stack.addArrangedSubview(divider)
-    configLabel = NSTextField(wrappingLabelWithString: "")
-    configLabel.textColor = .secondaryLabelColor
+
+    stack.addArrangedSubview(divider())
+    stack.addArrangedSubview(sectionTitle(localized("显示器配置", "Display Configuration")))
+    configLabel = wrappingLabel(size: 12)
     stack.addArrangedSubview(configLabel)
     stack.addArrangedSubview(
-      row([
-        button(localized("检查配置", "Check Configuration"), #selector(checkConfiguration)),
-        button(localized("创建 / 修复配置…", "Create / Repair…"), #selector(installConfiguration)),
-        button(
-          localized("恢复安装前配置…", "Restore Previous Configuration…"), #selector(restoreConfiguration)),
-      ]))
-    let hint = NSTextField(
-      wrappingLabelWithString: localized(
-        "配置安装需要管理员验证并重启。关闭窗口后仍在菜单栏运行。",
-        "Installing a configuration requires administrator authentication and a restart. The app stays in the menu bar when the window is closed."
-      ))
-    hint.font = .systemFont(ofSize: 12)
-    hint.textColor = .secondaryLabelColor
+      row(
+        [
+          button(localized("检查", "Check"), #selector(checkConfiguration)),
+          button(localized("创建 / 修复…", "Create / Repair…"), #selector(installConfiguration)),
+          button(localized("恢复安装前…", "Restore Previous…"), #selector(restoreConfiguration)),
+        ], spacing: 8))
+    let hint = wrappingLabel(size: 11)
+    hint.textColor = .tertiaryLabelColor
+    hint.stringValue = localized(
+      "开启 HiDPI 后需在 15 秒内保留，否则自动还原。配置安装需要管理员验证并重启。关闭窗口后仍在菜单栏运行。",
+      "Keep a new mode within 15 seconds, or it is reverted. Installing a configuration requires administrator authentication and a restart. The app stays in the menu bar when the window is closed."
+    )
     stack.addArrangedSubview(hint)
-    window.contentView!.addSubview(stack)
+    return sectionCard(stack, radius: 22)
+  }
+
+  // 玻璃窗口内的分组只用轻填充，避免玻璃叠玻璃。
+  private func sectionCard(
+    _ content: NSView, radius: CGFloat, padding: CGFloat? = nil, tint: NSColor? = nil
+  ) -> NSView {
+    let inner = NSView()
+    pin(content, in: inner, inset: padding ?? cardPadding)
+    let box = NSBox()
+    box.boxType = .custom
+    // 较实的填充加细描边，在窗口获得焦点、玻璃变亮时仍能区分分组。
+    box.borderWidth = 1
+    box.borderColor = NSColor(name: nil) { appearance in
+      appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        ? .white.withAlphaComponent(0.1) : .black.withAlphaComponent(0.08)
+    }
+    box.cornerRadius = radius
+    box.fillColor =
+      tint
+      ?? NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+          ? .white.withAlphaComponent(0.14) : .white.withAlphaComponent(0.82)
+      }
+    box.contentViewMargins = .zero
+    box.contentView = inner
+    let shadow = NSShadow()
+    shadow.shadowColor = .black.withAlphaComponent(0.08)
+    shadow.shadowOffset = NSSize(width: 0, height: -1)
+    shadow.shadowBlurRadius = 6
+    box.shadow = shadow
+    return box
+  }
+
+  private func pin(_ view: NSView, in parent: NSView, inset: CGFloat = 0) {
+    view.translatesAutoresizingMaskIntoConstraints = false
+    if view.superview !== parent { parent.addSubview(view) }
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 32),
-      stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -32),
-      stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 30),
-      stack.bottomAnchor.constraint(
-        lessThanOrEqualTo: window.contentView!.bottomAnchor, constant: -24),
+      view.leadingAnchor.constraint(equalTo: parent.leadingAnchor, constant: inset),
+      view.trailingAnchor.constraint(equalTo: parent.trailingAnchor, constant: -inset),
+      view.topAnchor.constraint(equalTo: parent.topAnchor, constant: inset),
+      view.bottomAnchor.constraint(equalTo: parent.bottomAnchor, constant: -inset),
     ])
-    let github = NSButton(
-      title: "GitHub · jxlabx/HiDPIHelper", target: self, action: #selector(openGitHub))
-    github.isBordered = false
-    github.contentTintColor = .linkColor
-    github.font = .systemFont(ofSize: 12)
-    github.translatesAutoresizingMaskIntoConstraints = false
-    window.contentView!.addSubview(github)
-    NSLayoutConstraint.activate([
-      github.centerXAnchor.constraint(equalTo: window.contentView!.centerXAnchor),
-      github.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16),
-      stack.bottomAnchor.constraint(lessThanOrEqualTo: github.topAnchor, constant: -16),
-    ])
-    window.center()
+  }
+
+  private func addFullWidth(_ view: NSView) {
+    root.addArrangedSubview(view)
+    view.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
+  }
+
+  private func wrappingLabel(size: CGFloat) -> NSTextField {
+    let label = NSTextField(wrappingLabelWithString: "")
+    label.font = .systemFont(ofSize: size)
+    label.textColor = .secondaryLabelColor
+    label.preferredMaxLayoutWidth = contentWidth - cardPadding * 2
+    return label
+  }
+
+  private func sectionTitle(_ title: String) -> NSTextField {
+    let label = NSTextField(labelWithString: title)
+    label.font = .systemFont(ofSize: 12, weight: .semibold)
+    label.textColor = .secondaryLabelColor
+    return label
+  }
+
+  private func divider() -> NSBox {
+    let box = NSBox()
+    box.boxType = .separator
+    box.widthAnchor.constraint(equalToConstant: contentWidth - cardPadding * 2).isActive = true
+    return box
+  }
+
+  private func button(_ title: String, _ action: Selector, prominent: Bool = false) -> NSButton {
+    let control = NSButton(title: title, target: self, action: action)
+    control.bezelStyle = .rounded
+    #if compiler(>=6.2)
+      if #available(macOS 26.0, *) {
+        control.bezelStyle = .glass
+        if prominent { control.tintProminence = .primary }
+        return control
+      }
+    #endif
+    if prominent { control.bezelColor = .controlAccentColor }
+    return control
+  }
+
+  private func row(_ views: [NSView], spacing: CGFloat) -> NSStackView {
+    let stack = NSStackView(views: views)
+    stack.orientation = .horizontal
+    stack.alignment = .centerY
+    stack.spacing = spacing
+    return stack
+  }
+
+  // 按内容高度调整窗口，保持顶部位置不变。
+  private func fitWindow(animated: Bool) {
+    guard let content = window.contentView else { return }
+    content.layoutSubtreeIfNeeded()
+    let height = root.fittingSize.height + 40 + 20
+    guard abs(content.frame.height - height) > 0.5 else { return }
+    var frame = window.frameRect(
+      forContentRect: NSRect(x: 0, y: 0, width: contentWidth + 48, height: height))
+    frame.origin.x = window.frame.minX
+    frame.origin.y = window.frame.maxY - frame.height
+    window.setFrame(frame, display: true, animate: animated && window.isVisible)
+  }
+
+  private func updateAdvancedButton() {
+    advancedButton.image = NSImage(
+      systemSymbolName: advancedCard.isHidden ? "chevron.right" : "chevron.down",
+      accessibilityDescription: nil)
+  }
+
+  @objc private func toggleAdvanced() {
+    advancedCard.isHidden.toggle()
+    preferences.set(!advancedCard.isHidden, forKey: "showAdvanced")
+    updateAdvancedButton()
+    fitWindow(animated: true)
   }
 
   @objc private func openGitHub() {
     NSWorkspace.shared.open(URL(string: "https://github.com/jxlabx/HiDPIHelper")!)
   }
 
-  private func button(_ title: String, _ action: Selector) -> NSButton {
-    let control = NSButton(title: title, target: self, action: action)
-    control.bezelStyle = .rounded
-    return control
-  }
-
-  private func row(_ views: [NSView]) -> NSStackView {
-    let stack = NSStackView(views: views)
-    stack.orientation = .horizontal
-    stack.spacing = 8
-    return stack
-  }
+  // MARK: - 显示器与配置
 
   private var selectedDisplay: ConnectedDisplay? {
     guard let id = displayPicker.selectedItem?.representedObject as? UInt32 else { return nil }
@@ -242,6 +485,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     } catch { refresh(error.localizedDescription) }
   }
 
+  // 根据当前选择与输入生成目标，不写入偏好。
+  private func candidateProfile() -> DisplayProfile? {
+    guard let display = selectedDisplay, let width = Int(widthField.stringValue),
+      let height = Int(heightField.stringValue)
+    else { return nil }
+    let candidate = DisplayProfile(
+      vendorID: display.vendorID, productID: display.productID, serialNumber: display.serialNumber,
+      width: width, height: height)
+    return (try? candidate.validate()) != nil ? candidate : nil
+  }
+
   private func saveProfile() throws {
     guard previous == nil else {
       throw configurationError(
@@ -270,27 +524,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     automaticButton.state = preferences.bool(forKey: "automatic") ? .on : .off
     loginButton.state = SMAppService.mainApp.status == .enabled ? .on : .off
     editControls.forEach { $0.isEnabled = previous == nil }
+    displayPicker.isHidden = displays.count < 2
+    displayNameLabel.isHidden = displays.count >= 2
+
+    let display = selectedDisplay
+    let current = display.flatMap { CGDisplayCopyDisplayMode($0.id) }
+    let target = candidateProfile()
+    let active = current.flatMap { mode in target.map { DisplayController.matches(mode, profile: $0) } } ?? false
+    let available = display.flatMap { display in
+      target.map { DisplayController.target(display.id, profile: $0) != nil }
+    } ?? false
+    hiDPISwitch.state = active ? .on : .off
+    hiDPISwitch.isEnabled = display != nil && target != nil && previous == nil
+
+    if let display = display, let current = current {
+      displayNameLabel.stringValue = display.name
+      modeLabel.stringValue =
+        "\(current.width) × \(current.height) · "
+        + (current.pixelWidth > current.width
+          ? "HiDPI \(current.pixelWidth) × \(current.pixelHeight)"
+          : localized("标准分辨率", "Standard resolution"))
+    } else {
+      displayNameLabel.stringValue = localized("未检测到外接显示器", "No external display")
+      modeLabel.stringValue = localized("连接显示器后自动识别", "Connect a display to get started")
+    }
+
+    let size = target.map { "\($0.width) × \($0.height)" } ?? ""
+    setupButton.isHidden = display == nil || target == nil || active || available
     if let message = message {
       statusLabel.stringValue = message
-      return
-    }
-    if let display = selectedDisplay, let current = CGDisplayCopyDisplayMode(display.id) {
-      statusLabel.stringValue =
-        localized("当前", "Current") + " \(current.width) × \(current.height)  ·  "
-        + localized("渲染", "Rendered") + " \(current.pixelWidth) × \(current.pixelHeight)\n"
-        + (previous == nil
-          ? localized("已就绪", "Ready")
-          : localized("等待确认，15 秒后恢复", "Awaiting confirmation; restoring after 15 seconds"))
+    } else if display == nil {
+      statusLabel.stringValue = localized(
+        "HiDPI Helper 会在显示器连接后自动恢复已保留的模式。",
+        "HiDPI Helper restores the kept mode when a display connects.")
+    } else if target == nil {
+      statusLabel.stringValue = localized(
+        "请在“高级”中输入有效的目标尺寸。", "Enter a valid target size under Advanced.")
+    } else if active {
+      statusLabel.stringValue = localized(
+        "HiDPI 已开启，桌面 \(size) 以 2 倍精度渲染。",
+        "HiDPI is on. The \(size) desktop is rendered at 2× precision.")
+    } else if available {
+      statusLabel.stringValue = localized(
+        "打开开关，以 \(size) HiDPI 显示更清晰的文字。",
+        "Turn on to use \(size) HiDPI for sharper text.")
     } else {
-      statusLabel.stringValue = localized("等待外接显示器连接", "Waiting for an external display")
+      statusLabel.stringValue = localized(
+        "系统尚未提供 \(size) HiDPI 模式。创建配置并重启后即可开启。",
+        "macOS does not offer \(size) HiDPI yet. Create a configuration and restart to turn it on.")
     }
-    if let profile = profile, selectedDisplay?.matches(profile) == true {
-      configLabel.stringValue = DisplayConfiguration(profile: profile).check()
+
+    confirmCard.isHidden = previous == nil
+    updateConfirmLabel()
+    if let profile = profile, display?.matches(profile) == true {
+      configLabel.stringValue = configurationStatus(profile, display: display)
     } else {
       configLabel.stringValue = localized(
         "先保存目标尺寸，再检查或创建该显示器的配置。",
         "Save the target size before checking or creating this display’s configuration.")
     }
+    if window.isVisible { fitWindow(animated: true) }
+  }
+
+  private func updateConfirmLabel() {
+    let seconds = max(0, Int(confirmationDeadline.timeIntervalSinceNow.rounded(.up)))
+    confirmLabel.stringValue = localized(
+      "保留新的显示模式？\(seconds) 秒后还原", "Keep this display mode? Reverting in \(seconds)s")
   }
 
   @objc private func show() {
@@ -299,8 +598,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     refresh()
   }
   @objc private func quit() { NSApp.terminate(nil) }
-  @objc private func applyHiDPI() { change(hiDPI: true) }
-  @objc private func applyNative() { change(hiDPI: false) }
+  @objc private func toggleHiDPI() { change(hiDPI: hiDPISwitch.state == .on) }
+  @objc private func revertChange() { restore() }
 
   private func change(hiDPI: Bool) {
     do {
@@ -316,14 +615,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         throw configurationError(
           hiDPI
             ? localized(
-              "目标 HiDPI 模式尚不可用，请创建配置并重启后再检查。",
-              "The target HiDPI mode is unavailable. Create a configuration, restart, and check again."
+              "目标 HiDPI 模式尚不可用，请创建配置并重启后再试。",
+              "The target HiDPI mode is unavailable. Create a configuration, restart, and try again."
             )
             : localized(
               "系统没有提供可识别的原生模式。", "The system did not provide an identifiable native mode."))
       }
       if DisplayController.same(old, target) {
-        preferences.set(hiDPI, forKey: "useHiDPI")
+        keep(hiDPI: hiDPI)
         refresh()
         return
       }
@@ -336,11 +635,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         throw configurationError(
           localized("切换失败，已尝试恢复。", "The mode change failed. Restoration was attempted."))
       }
-      confirmationTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: false) {
-        [weak self] _ in self?.restore()
+      confirmationDeadline = Date().addingTimeInterval(15)
+      confirmationTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) {
+        [weak self] _ in
+        guard let self = self else { return }
+        if self.confirmationDeadline.timeIntervalSinceNow <= 0 { self.restore() } else {
+          self.updateConfirmLabel()
+        }
       }
       refresh()
+      NSApp.requestUserAttention(.informationalRequest)
     } catch { refresh(error.localizedDescription) }
+  }
+
+  // 主开关代表“保持 HiDPI”：保留后同时决定是否自动恢复。
+  private func keep(hiDPI: Bool) {
+    preferences.set(hiDPI, forKey: "useHiDPI")
+    preferences.set(hiDPI, forKey: "automatic")
   }
 
   @objc private func confirm() {
@@ -348,7 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     confirmationTimer?.invalidate()
     confirmationTimer = nil
     previous = nil
-    preferences.set(pendingHiDPI, forKey: "useHiDPI")
+    keep(hiDPI: pendingHiDPI)
     refresh()
   }
 
@@ -399,6 +710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
   private func recover() {
     guard preferences.bool(forKey: "automatic"), previous == nil, let profile = profile else {
+      // 未自动恢复时也同步开关状态，反映外部的模式变化。
+      if previous == nil { refresh() }
       return
     }
     reloadDisplays()
@@ -434,7 +747,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     refresh()
   }
 
-  @objc private func checkConfiguration() { saveTarget() }
+  private func configurationStatus(_ profile: DisplayProfile, display: ConnectedDisplay?) -> String {
+    let fileStatus = DisplayConfiguration(profile: profile).check()
+    guard let display = display else { return fileStatus }
+    let available = DisplayController.target(display.id, profile: profile) != nil
+    let active = CGDisplayCopyDisplayMode(display.id).map {
+      DisplayController.matches($0, profile: profile)
+    } ?? false
+    let modeStatus = active
+      ? localized("目标 HiDPI 已启用。", "The target HiDPI mode is active.")
+      : available
+        ? localized("目标 HiDPI 可用，尚未启用。", "The target HiDPI mode is available but inactive.")
+        : localized(
+          "系统未提供目标 HiDPI；文件存在不代表模式已加载。",
+          "The target HiDPI mode is unavailable; a file on disk does not mean it is loaded.")
+    return fileStatus + "\n" + modeStatus
+  }
+
+  @objc private func checkConfiguration() {
+    // 检查不保存输入，也不改变自动恢复偏好。
+    refresh()
+  }
   @objc private func installConfiguration() { launchConfiguration("install") }
   @objc private func restoreConfiguration() { launchConfiguration("restore") }
   private func shellQuote(_ value: String) -> String {
@@ -469,10 +802,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "Could not open the configuration script. Check the application associated with terminal scripts."
           ))
       }
-      configLabel.stringValue = localized(
-        "请在终端完成管理员验证，然后重启并检查配置。",
-        "Complete administrator authentication in Terminal, then restart and check the configuration."
-      )
+      // 提示显示在主卡片，收起高级选项时也能看到下一步。
+      refresh(
+        localized(
+          "请在终端完成管理员验证，然后重启并检查配置。",
+          "Complete administrator authentication in Terminal, then restart and check the configuration."
+        ))
     } catch { refresh(error.localizedDescription) }
   }
 
@@ -486,15 +821,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 if CommandLine.arguments.contains("--diagnose") {
-  for display in DisplayController.connected() {
+  let displays = DisplayController.connected()
+  guard !displays.isEmpty else {
+    fputs("未读取到外接显示器。请在当前图形登录会话中运行；受限环境无法证明显示器未连接。\n", stderr)
+    exit(1)
+  }
+  let preferences = UserDefaults.standard
+  let saved = preferences.data(forKey: "profile").flatMap {
+    try? JSONDecoder().decode(DisplayProfile.self, from: $0)
+  }
+  print("自动恢复：\(preferences.bool(forKey: "automatic"))，登录项状态：\(SMAppService.mainApp.status.rawValue)")
+  for display in displays {
     guard let current = CGDisplayCopyDisplayMode(display.id) else { continue }
-    print(
-      "\(display.name): \(current.width)×\(current.height), " + localized("渲染", "Rendered")
-        + " \(current.pixelWidth)×\(current.pixelHeight), \(current.refreshRate)Hz"
-    )
-    print(
-      localized("可识别原生模式：", "Identifiable native mode: ")
-        + "\(DisplayController.native(display.id) != nil)")
+    print("\(display.name): \(current.width)×\(current.height)，渲染 \(current.pixelWidth)×\(current.pixelHeight)，\(current.refreshRate)Hz")
+    print("显示器标识：\(String(display.vendorID, radix: 16))-\(String(display.productID, radix: 16))")
+    if let profile = saved, display.matches(profile) {
+      print(DisplayConfiguration(profile: profile).check())
+      print("目标 HiDPI 可用：\(DisplayController.target(display.id, profile: profile) != nil)，已启用：\(DisplayController.matches(current, profile: profile))")
+    }
   }
 } else {
   let application = NSApplication.shared
